@@ -1,0 +1,8 @@
+#line 1 "C:\\Users\\Paul\\Desktop\\RCplanePro\\ArduinoFirmware\\.vscode\\arduino.json"
+{
+    "sketch": "ArduinoFirmware.ino",
+    "board": "arduino:avr:uno",
+    "port": "COM5",
+    "output": "../build",
+    "intelliSenseGen": "global"
+}

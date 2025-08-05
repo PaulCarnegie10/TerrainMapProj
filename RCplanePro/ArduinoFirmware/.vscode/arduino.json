@@ -1,0 +1,7 @@
+{
+    "sketch": "ArduinoFirmware.ino",
+    "board": "arduino:avr:uno",
+    "port": "COM5",
+    "output": "../build",
+    "intelliSenseGen": "global"
+}
