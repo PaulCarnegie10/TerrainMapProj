@@ -15,12 +15,6 @@ import com.fazecast.jSerialComm.*;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
-/**
- * JavaFX application that displays a 3D cube and allows the user to fly the camera around using keyboard controls.
- * - WASD: Move camera forward/left/back/right
- * - Q/E: Move camera up/down
- * - Arrow keys: Look around (rotate camera)
- */
 public class Main extends Application {
 
     // Camera movement parameters
@@ -31,17 +25,27 @@ public class Main extends Application {
     private double cameraYaw = 0;   // Y-axis rotation (left/right)
     private double cameraPitch = 0; // X-axis rotation (up/down)
 
-    private static final String SERIAL_PORT = "COM3";
-    private static final int BAUD_RATE = 115200;
+    //Serial Port Settings
+    private static final String SERIAL_PORT = "COM5";
+    private static final int BAUD_RATE = 57600;
 
+    //cube movement and declaration
     private Box cube;
     private double cubeVelX = 0, cubeVelY = 0, cubeVelZ = 0;
+
+    //Timing
+    private long lastUpdate = 0; //In nano seconds
+
+    //Sensor data tuning
+    private static int testSamples = 200;
+    private int testCount = 0;
+    private double testAx = 0, testAy = 0, testAz = 0;
 
 
     @Override
     public void start(Stage stage) {
-        // Create a 3D cube
-        Box cube = new Box(100, 100, 100);
+        // Creates a cube
+        cube = new Box(100, 100, 100);
         PhongMaterial material = new PhongMaterial(Color.DODGERBLUE);
         cube.setMaterial(material);
 
@@ -117,16 +121,20 @@ public class Main extends Application {
     private void readSerialData() {
         SerialPort comPort = SerialPort.getCommPort(SERIAL_PORT);
         comPort.setBaudRate(BAUD_RATE);
+        //
+        comPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, 0, 0);
         if (!comPort.openPort()) {
             System.err.println("Failed to open serial port: " + SERIAL_PORT);
             return;
         }
+        System.out.println("Serial port opened: " + SERIAL_PORT);
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(comPort.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 // Example line: ACC:0.12,0.01,9.81;GYRO:0.01,0.02,0.03
                 double[] accel = new double[3];
-                double[] gyro = new double[3];
+                double[] gyro = new double[2];
+                //System.out.println(line);
                 try {
                     String[] parts = line.split(";");
                     for (String part : parts) {
@@ -138,39 +146,79 @@ public class Main extends Application {
                         } else if (part.startsWith("GYRO:")) {
                             String[] vals = part.substring(5).split(",");
                             gyro[0] = Double.parseDouble(vals[0]);
-                            gyro[1] = Double.parseDouble(vals[1]);
-                            gyro[2] = Double.parseDouble(vals[2]);
-                        }
+                            gyro[1] = Double.parseDouble(vals[1]);                        }
                     }
                 } catch (Exception e) {
                     System.err.println("Parse error: " + line);
                     continue;
                 }
-
                 // Update cube on JavaFX thread
                 Platform.runLater(() -> updateCube(accel, gyro));
             }
+            System.out.println("we exiting");
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-            comPort.closePort();
+            //comPort.closePort();
         }
     }
 
     private void updateCube(double[] accel, double[] gyro) {
-        // Integrate acceleration to velocity (very basic, for demo purposes)
-        cubeVelX += accel[0];
-        cubeVelY += accel[1];
-        cubeVelZ += accel[2];
+        //Keep track of timing
+        long currentT = System.nanoTime();
+        if (lastUpdate == 0) {
+            lastUpdate = currentT;
+            return;
+        }
+        double dt = (currentT - lastUpdate) / 1000000000.0; // Convert to seconds
+        lastUpdate = currentT; // Update last update time
+
+        //Tune sensor data
+        // if (testCount < testSamples) {
+        //     testCount++;
+        //     testAx += accel[0];
+        //     testAy += accel[1];
+        //     testAz += accel[2];
+        //     return;
+        // }
+
+        // double tX = testAx / testCount;
+        // double tY = testAy / testCount;
+        // double tZ = testAz / testCount;
+
+        double ax = accel[0], ay = accel[1], az = accel[2];
+        double noiseThresh = 0.1;
+
+        if (Math.abs(ax) < noiseThresh) ax = 0;
+        if (Math.abs(ay) < noiseThresh) ay = 0;
+        if (Math.abs(az) < noiseThresh) az = 0;
+        
+        //Update the velocity
+        cubeVelX += ax * dt;
+        cubeVelY += ay * dt;
+        cubeVelZ += az * dt;
+
+        System.out.println(cubeVelX);
+
+        //Reduce drift
+        //if (Math.abs(cubeVelX) < 0.01) cubeVelX = 0;
+        //if (Math.abs(cubeVelY) < 0.01) cubeVelY = 0;
+        //if (Math.abs(cubeVelZ) < 0.01) cubeVelZ = 0;
+
+        //Dampen cube
+        double damp = 0.9;
+        cubeVelX *= damp;
+        cubeVelY *= damp;
+        cubeVelZ *= damp;
 
         // Update position
-        cube.setTranslateX(cube.getTranslateX() + cubeVelX * 0.01); // scale down for demo
-        cube.setTranslateY(cube.getTranslateY() + cubeVelY * 0.01);
-        cube.setTranslateZ(cube.getTranslateZ() + cubeVelZ * 0.01);
+        cube.setTranslateX(cube.getTranslateX() + cubeVelX * dt * 500); // scale down for demo
+        cube.setTranslateY(cube.getTranslateY() + cubeVelY *dt * 500);
+        cube.setTranslateZ(cube.getTranslateZ() + cubeVelZ * dt * 500);
 
         // Update rotation (additive, simple demo)
         cube.setRotationAxis(Rotate.X_AXIS);
-        cube.setRotate(cube.getRotate() + gyro[0]);
+        cube.setRotate(gyro[0]);
 
     }
 

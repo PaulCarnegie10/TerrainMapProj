@@ -6,12 +6,15 @@ float RollRate, PitchRate, YawRate;
 float AccX, AccY, AccZ;
 float AngRoll, AngPitch;
 float RollRateCalibrated, PitchRateCalibrated, YawRateCalibrated;
+float AccXCal, AccYCal, AccZCal;
 float KalmanRoll = 0;
 float RollUncertainty = 10;
 float KalmanPitch = 0;
 float PitchUncertainty = 10;
 //Kalman filter output initialization
 float KalOut[] = {0,0};
+
+float LinAccX = 0, LinAccY = 0, LinAccZ = 0;      // linear acceleration (g)
 
 
 uint32_t LoopTimer;
@@ -42,10 +45,10 @@ void gyro_signals() {
     Wire.write(0x05);
     Wire.endTransmission();
     //Congigure accelorometer outputs +/- 8g
-    Wire.beginTransmission(0x68);
-    Wire.write(0x1C);
-    Wire.write(0x10); //Hex 10 is the binary representation of the data
-    Wire.endTransmission();
+    //Wire.beginTransmission(0x68);
+    //Wire.write(0x1C);
+    //Wire.write(0x10); //Hex 10 is the binary representation of the data
+    //Wire.endTransmission();
     //Accelerometer measurements
     Wire.beginTransmission(0x68);
     Wire.write(0x3B);
@@ -70,9 +73,9 @@ void gyro_signals() {
     RollRate = (float)GyroX/65.5;
     PitchRate = (float)GyroY/65.5;
     YawRate = (float)GyroZ/65.5;
-    AccX = (float)AccXLSB/4096 - 0.05; //4096LSB per g
-    AccY = (float)AccYLSB/4096;
-    AccZ = (float)AccZLSB/4096 - 0.1;
+    AccX = (float)AccXLSB/16384.0; //4096LSB per g
+    AccY = (float)AccYLSB/16384.0;
+    AccZ = (float)AccZLSB/16384.0;
     //Calculate Roll and Pitch
     AngRoll = atan(AccY/sqrt(AccX*AccX + AccZ*AccZ))/(M_PI/180);
     AngPitch = -atan(AccX/sqrt(AccY*AccY + AccZ*AccZ))/(M_PI/180);
@@ -88,18 +91,29 @@ void setup() {
     Wire.write(0x00); //Wakes up MPU-6050
     Wire.endTransmission(true);
 
+    Wire.beginTransmission(0x68);
+    Wire.write(0x1C);
+    Wire.write(0x00);
+    Wire.endTransmission();
+
     //Calibrate Gyroscope
     delay(1000); //To give time to put it down
-    for(int i = 0; i < 1000; i++) {
+    for(int i = 0; i < 2000; i++) {
         gyro_signals();
         RollRateCalibrated += RollRate;
         PitchRateCalibrated += PitchRate;
         YawRateCalibrated += YawRate;
+        AccXCal += AccX;
+        AccYCal += AccY;
+        AccZCal += AccZ - 1;
         delay(1);
     }
-    RollRateCalibrated /= 1000;
-    PitchRateCalibrated /= 1000;
-    YawRateCalibrated /= 1000;
+    RollRateCalibrated /= 2000;
+    PitchRateCalibrated /= 2000;
+    YawRateCalibrated /= 2000;
+    AccXCal /= 2000;
+    AccYCal /= 2000;
+    AccZCal /= 2000;
     LoopTimer = micros();
 }
 
@@ -108,11 +122,36 @@ void loop() {
     RollRate -= RollRateCalibrated;
     PitchRate -= PitchRateCalibrated;
     YawRate -= YawRateCalibrated;
+    AccX -= AccXCal;
+    AccY -= AccYCal;
+    AccZ -= AccZCal;
+
     kalman_filter(&KalmanRoll, &RollUncertainty, RollRate, AngRoll);
     kalman_filter(&KalmanPitch, &PitchUncertainty, PitchRate, AngPitch);
-    Serial.print(" Roll Angle [deg] ");
+
+    //Gravity Vector
+    float rollRad = KalmanRoll * DEG_TO_RAD;
+    float pitchRad = KalmanPitch * DEG_TO_RAD;
+
+    float gX = -sinf(pitchRad);
+    float gY = sinf(rollRad) * cosf(pitchRad);
+    float gZ = cosf(rollRad) * cosf(pitchRad);
+
+    //Correcting acceleration linear
+    AccX -= gX;
+    AccY -= gY;
+    AccZ -= gZ;
+
+
+    Serial.print("ACC:");
+    Serial.print(AccX);
+    Serial.print(",");
+    Serial.print(AccY);
+    Serial.print(",");
+    Serial.print(AccZ);
+    Serial.print(";GYRO:");
     Serial.print(KalmanRoll);
-    Serial.print(" Pitch Angle [deg] ");
+    Serial.print(",");
     Serial.print(KalmanPitch);
     Serial.print("\n");
     while (micros() - LoopTimer < 4000);
